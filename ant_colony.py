@@ -2,12 +2,12 @@ import numpy as np
 from copy import deepcopy
 import matplotlib.pyplot as plt
 
-EPSILON = 1e-10
+
 np.set_printoptions(precision=4)
 
 
 def distance(a, b):
-    return np.sqrt(np.sum((a-b) * (a-b)))
+    return np.sqrt(np.sum((a - b) * (a - b)))
 
 
 def get_adj_matrix(points):
@@ -18,65 +18,93 @@ def get_adj_matrix(points):
     return adj
 
 
-def run_colony(points, ants=50, iterations=100, alpha=1.8, beta=3, evaporation=0.1, q=5):
+class AntColony:
 
-    n_nodes = len(points)
-    node_idxs = np.arange(n_nodes)
+    def __init__(self, points, ants=20, alpha=1, beta=1, evaporation=0.6, q=5, ):
 
-    # Proximity
-    dist = get_adj_matrix(points)
-    proximity = 1 / (dist + EPSILON)
+        self.EPSILON = 1e-10
 
-    # Pheromones
-    pheromones = np.full_like(dist, 1/n_nodes)
-    pheromones -= np.eye(n_nodes, n_nodes) * pheromones
+        self.points = points
+        self.n_nodes = len(points)
+        self.node_idxs = np.arange(self.n_nodes)
 
-    best_path = {"path": None, "cost": np.inf}
+        dist = get_adj_matrix(points)
+        self.proximity = 1 / (dist + self.EPSILON)
+        self.pheromones = np.full_like(self.proximity, 1/self.n_nodes)
+        self.pheromones -= np.eye(self.n_nodes, self.n_nodes) * self.pheromones
+        self.preferences = None
 
-    for i in range(iterations):
-        preferences = np.power(pheromones, alpha) * np.power(proximity, beta)
-        pheromone_update = np.zeros_like(preferences)
-        for ant in range(ants):
-            node = np.random.choice(node_idxs)
-            ant_preferences = deepcopy(preferences)
+        # Parameters
+        self.ants = ants
+        self.alpha = alpha
+        self.beta = beta
+        self.evaporation = evaporation
+        self.q = q
+
+    def run_ant(self):
+        node = np.random.choice(self.n_nodes)
+        ant_preferences = deepcopy(self.preferences)
+        ant_preferences[:, node] = 0
+        path = [node]
+        cost = 0
+        for step in range(self.n_nodes - 1):
+            # Calculate probability of all nodes from current one
+            current_preferences = ant_preferences[node]
+            probabilities = current_preferences / np.sum(current_preferences)
+
+            # Choose next node based on probability
+            node = np.random.choice(self.node_idxs, p=probabilities)
+
+            # Remove current node from probabilities to avoid visiting it twice
             ant_preferences[:, node] = 0
-            path = [node]
-            cost = 0
-            for step in range(n_nodes-1):
-                current_preferences = ant_preferences[node]
-                probabilities = current_preferences / np.sum(current_preferences)
-                node = np.random.choice(node_idxs, p=probabilities)
-                ant_preferences[:, node] = 0
-                path.append(node)
-                cost += distance(points[path[-1]], points[path[-2]])
 
-            # Leave Pheromones
-            prev_node = 0
-            reward = q / cost
+            # Add selected node to path and increment cost
+            path.append(node)
+            cost += distance(self.points[path[-1]], self.points[path[-2]])
 
-            for node in path:
-                pheromone_update[prev_node, node] += reward
-                pheromone_update[node, prev_node] += reward
-                prev_node = node
+        return path, cost
 
-            # Store best path
-            if cost < best_path["cost"]:
-                best_path["path"] = path
-                best_path["cost"] = cost
+    # points, ants=50, iterations=100, alpha=1.8, beta=3, evaporation=0.1, q=5
+    def run_colony(self, iterations=100):
+        best_path = {"path": None, "cost": np.inf}
+        for i in range(iterations):
+            # Calculate preferences based on pheromones and distance heuristic
+            self.preferences = np.power(self.pheromones, self.alpha) * np.power(self.proximity, self.beta)
 
-        # Evaporation
-        pheromones *= evaporation
-        pheromones += pheromone_update
-    return points[best_path["path"]], best_path["cost"]
+            # Initialize pheromone update matrix
+            pheromone_update = np.zeros_like(self.preferences)
+            for ant in range(self.ants):
+                path, cost = self.run_ant()
+
+                # Leave pheromones
+                prev_node = path[0]
+                reward = self.q / cost
+
+                for node in path[1:]:
+                    pheromone_update[prev_node, node] += reward
+                    pheromone_update[node, prev_node] += reward
+                    prev_node = node
+
+                # Store best path
+                if cost < best_path["cost"]:
+                    best_path["path"] = path
+                    best_path["cost"] = cost
+
+            # Evaporation and pheromone update
+            self.pheromones *= self.evaporation
+            self.pheromones += pheromone_update
+        return self.points[best_path["path"]], best_path["cost"]
 
 if __name__ == '__main__':
 
-    points = np.random.uniform(-20, 20, size=(50, 2))
+    n = 40
+    checkpoints = np.random.uniform(-20, 20, size=(n, 2))
 
-    path, cost = run_colony(points)
+    colony = AntColony(checkpoints, ants=80, alpha=1, beta=5, evaporation=0.8, q=40)
+    path, cost = colony.run_colony(iterations=100)
     print(path, cost)
 
-    plt.scatter(points[:, 0], points[:, 1])
+    plt.scatter(checkpoints[:, 0], checkpoints[:, 1])
     plt.plot(path[:, 0], path[:, 1])
     plt.tight_layout()
     plt.show()
